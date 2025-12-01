@@ -1,34 +1,35 @@
 ---
-- name: Create CSR with UPN using OpenSSL
-  hosts: localhost
-  gather_facts: no
-
-  vars:
-    username: devuser2
-    domain: TEST.LOCAL
-    upn: "{{ username }}@{{ domain }}"
-    cert_dir: /tmp/certs
-
-  tasks:
-
-    - name: Ensure cert directory exists
-      ansible.builtin.file:
-        path: "{{ cert_dir }}"
-        state: directory
-
-    - name: Create private key
-      community.crypto.openssl_privatekey:
-        path: "{{ cert_dir }}/{{ username }}.key"
-        size: 2048
-
-    - name: Create CSR with UPN SAN
-      community.crypto.openssl_csr:
-        path: "{{ cert_dir }}/{{ username }}.csr"
-        privatekey_path: "{{ cert_dir }}/{{ username }}.key"
-        common_name: "{{ username }}"
-        subject_alt_name:
-          - "email:{{ upn | lower }}"
-          - "otherName:1.3.6.1.4.1.311.20.2.3;UTF8:{{ upn }}"
-        extended_key_usage:
-          - clientAuth
-          - "1.3.6.1.4.1.311.10.3.4.1"
+  - name: Create CSR with UPN using OpenSSL
+    hosts: localhost
+    gather_facts: no
+    vars:
+      usernames:
+        - devuser2
+        - devuser3
+        - devuser4
+      domain: TEST.LOCAL
+      cert_dir: /tmp/certs
+    tasks:
+      - name: Ensure cert directory exists
+        ansible.builtin.file:
+          path: "{{ cert_dir }}"
+          state: directory
+  
+      - name: Create private key for each user
+        community.crypto.openssl_privatekey:
+          path: "{{ cert_dir }}/{{ item }}.key"
+          size: 2048
+        loop: "{{ usernames }}"
+  
+      - name: Create CSR with UPN SAN for each user
+        community.crypto.openssl_csr:
+          path: "{{ cert_dir }}/{{ item }}.csr"
+          privatekey_path: "{{ cert_dir }}/{{ item }}.key"
+          common_name: "{{ item }}"
+          subject_alt_name:
+            - "email:{{ item }}@{{ domain | lower }}"
+            - "otherName:1.3.6.1.4.1.311.20.2.3;UTF8:{{ item }}@{{ domain }}"
+          extended_key_usage:
+            - clientAuth
+            - "1.3.6.1.4.1.311.10.3.4.1"
+        loop: "{{ usernames }}"
