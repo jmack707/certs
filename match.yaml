@@ -1,0 +1,45 @@
+---
+- name: Validate that certificate and key match
+  hosts: localhost
+  gather_facts: no
+
+  vars:
+    cert_name: devuser1
+    directory: /tmp/certs
+    cert_file: "{{ directory }}/{{ cert_name }}.crt"
+    key_file: "{{ directory }}/{{ cert_name }}.key"
+
+  tasks:
+
+    - name: Get certificate info
+      community.crypto.x509_certificate_info:
+        path: "{{ cert_file }}"
+      register: cert_info
+
+    - name: Get private key info
+      community.crypto.openssl_privatekey_info:
+        path: "{{ key_file }}"
+      register: key_info
+
+    - name: Extract public key from certificate to temp file
+      ansible.builtin.copy:
+        content: "{{ cert_info.public_key }}"
+        dest: "/tmp/cert_pubkey.pem"
+        mode: '0644'
+
+    - name: Extract modulus from certificate
+      ansible.builtin.shell: "openssl rsa -pubin -in /tmp/cert_pubkey.pem -modulus -noout"
+      register: cert_modulus
+      changed_when: false
+
+    - name: Extract modulus from private key
+      ansible.builtin.shell: "openssl rsa -in {{ key_file }} -modulus -noout"
+      register: key_modulus
+      changed_when: false
+
+    - name: Compare modulus to verify key matches certificate
+      ansible.builtin.assert:
+        that:
+          - cert_modulus.stdout == key_modulus.stdout
+        fail_msg: "Certificate and private key do NOT match ❌"
+        success_msg: "Certificate and private key match ✅"
