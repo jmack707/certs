@@ -1,0 +1,75 @@
+---
+- name: Request, retrieve, and save user certificates in a single location
+  hosts: ipaserver
+  gather_facts: no
+  vars:
+    ipa_admin_password: "SomeADMINpassword"
+
+    cert_file_path: "./user-certs"   # Used for both CSR source and cert output
+
+    users:
+      - username: devuser1
+      - username: devuser2
+
+  tasks:
+    # Step 1: Request certificate for each user (auto-building CSR filename)
+    - name: Request certificate for each user
+      freeipa.ansible_freeipa.ipacert:
+        ipaadmin_password: "{{ ipa_admin_password }}"
+        csr: "{{ lookup('file', cert_file_path + '/' + item.username + '.csr') }}"
+        principal: "{{ item.username }}@TEST.LOCAL"
+        profile_id: IECUserRoles
+        state: requested
+      loop: "{{ users }}"
+      loop_control:
+        label: "{{ item.username }}"
+      register: cert_requests
+
+    # Step 2: Build user_serial_numbers list for later looping
+    - name: Build user_serial_numbers list
+      set_fact:
+        user_serial_numbers: >-
+          {{
+            user_serial_numbers | default([]) +
+            [{
+              'username': users[item.0].username,
+              'serial_number': item.1.certificate.serial_number | default('not issued')
+            }]
+          }}
+      with_indexed_items: "{{ cert_requests.results }}"
+
+    # Step 3: Retrieve each certificate by serial number
+    - name: Retrieve certificates based on serial numbers
+      freeipa.ansible_freeipa.ipacert:
+        ipaadmin_password: "{{ ipa_admin_password }}"
+        serial_number: "{{ item.serial_number }}"
+        state: retrieved
+      loop: "{{ user_serial_numbers }}"
+      register: cert_retrieved_results
+
+    # Step 4: Ensure cert_file_path directory exists locally
+    - name: Ensure cert file path exists locally
+      ansible.builtin.file:
+        path: "{{ cert_file_path }}"
+        state: directory
+        mode: '0755'
+      delegate_to: localhost
+      run_once: true
+
+    # Step 5: Save each certificate locally to cert_file_path
+    - name: Save each certificate directly to local files
+      ansible.builtin.copy:
+        content: "{{ item.1.certificate }}"
+        dest: "{{ cert_file_path }}/{{ user_serial_numbers[item.0].username | lower }}.crt"
+        mode: '0644'
+      with_indexed_items: "{{ cert_retrieved_results.results }}"
+      when: item.1.certificate is defined
+      delegate_to: localhost
+
+    # Optional: Display file path confirmation
+    - name: Show saved certificate files (local)
+      ansible.builtin.debug:
+        msg: "Saved {{ cert_file_path }}/{{ user_serial_numbers[item.0].username | lower }}.crt for user {{ user_serial_numbers[item.0].username }}"
+      with_indexed_items: "{{ cert_retrieved_results.results }}"
+      when: item.1.certificate is defined
+      delegate_to: localhost

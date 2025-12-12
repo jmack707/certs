@@ -4,11 +4,11 @@
     gather_facts: no
     vars:
       usernames:
+        - devuser1
         - devuser2
         - devuser3
-        - devuser4
       domain: TEST.LOCAL
-      cert_dir: /tmp/certs
+      cert_dir: user-certs
     tasks:
       - name: Ensure cert directory exists
         ansible.builtin.file:
