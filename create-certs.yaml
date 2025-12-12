@@ -1,35 +1,77 @@
 ---
-  - name: Create CSR with UPN using OpenSSL
-    hosts: localhost
-    gather_facts: no
-    vars:
-      usernames:
-        - devuser1
-        - devuser2
-        - devuser3
-      domain: TEST.LOCAL
-      cert_dir: user-certs
-    tasks:
-      - name: Ensure cert directory exists
-        ansible.builtin.file:
-          path: "{{ cert_dir }}"
-          state: directory
-  
-      - name: Create private key for each user
-        community.crypto.openssl_privatekey:
-          path: "{{ cert_dir }}/{{ item }}.key"
-          size: 2048
-        loop: "{{ usernames }}"
-  
-      - name: Create CSR with UPN SAN for each user
-        community.crypto.openssl_csr:
-          path: "{{ cert_dir }}/{{ item }}.csr"
-          privatekey_path: "{{ cert_dir }}/{{ item }}.key"
-          common_name: "{{ item }}"
-          subject_alt_name:
-            - "email:{{ item }}@{{ domain | lower }}"
-            - "otherName:1.3.6.1.4.1.311.20.2.3;UTF8:{{ item }}@{{ domain }}"
-          extended_key_usage:
-            - clientAuth
-            - "1.3.6.1.4.1.311.10.3.4.1"
-        loop: "{{ usernames }}"
+- name: Request, retrieve, and save user certificates
+  hosts: ipaserver
+  gather_facts: no
+
+  vars:
+    ipa_admin_password: bigip123
+    cert_file_path: "./user-certs"
+    users:
+      - username: devuser1
+      - username: devuser2
+
+  tasks:
+    # Ensure cert output directory exists (local)
+    - name: Ensure cert output directory exists locally
+      ansible.builtin.file:
+        path: "{{ cert_file_path }}"
+        state: directory
+        mode: '0755'
+      delegate_to: localhost
+      run_once: true
+
+    # Request certificates
+    - name: Request certificate for each user
+      freeipa.ansible_freeipa.ipacert:
+        ipaadmin_password: "{{ ipa_admin_password }}"
+        csr: "{{ lookup('file', cert_file_path ~ '/' ~ item.username ~ '.csr') }}"
+        principal: "{{ item.username }}@TEST.LOCAL"
+        profile_id: IECUserRoles
+        state: requested
+      loop: "{{ users }}"
+      loop_control:
+        label: "{{ item.username }}"
+      register: cert_requests
+
+    # Extract serial numbers into a friendly list
+    - name: Build list of users with certificate serial numbers
+      set_fact:
+        user_serial_numbers: "{{ cert_requests.results
+          | json_query('[].{
+               username: item.username,
+               serial: certificate.serial_number
+             }') }}"
+      when: cert_requests is defined
+
+    # Retrieve certificates for users with valid serial numbers
+    - name: Retrieve certificates
+      freeipa.ansible_freeipa.ipacert:
+        ipaadmin_password: "{{ ipa_admin_password }}"
+        serial_number: "{{ item.serial }}"
+        state: retrieved
+      loop: "{{ user_serial_numbers }}"
+      when: item.serial is defined
+      register: cert_retrieved
+
+    # Save each certificate locally
+    - name: Save each retrieved certificate to a local file
+      ansible.builtin.copy:
+        content: "{{ item.certificate.certificate[0] }}"
+        dest: "{{ cert_file_path }}/{{ item.item.username }}.crt"
+        mode: '0644'
+      loop: "{{ cert_retrieved.results }}"
+      when:
+        - item.certificate is defined
+        - item.certificate.certificate is defined
+      delegate_to: localhost
+
+    # Show results
+    - name: Show saved certificate file info
+      ansible.builtin.debug:
+        msg: "Saved certificate for {{ item.item.username }} → {{ cert_file_path }}/{{ item.item.username }}.crt"
+      loop: "{{ cert_retrieved.results }}"
+      when:
+        - item.certificate is defined
+        - item.certificate.certificate is defined
+      delegate_to: localhost
+
