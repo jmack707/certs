@@ -3,10 +3,7 @@
   hosts: ipaserver
   gather_facts: no
   vars:
-    ipa_admin_password: "SomeADMINpassword"
-
     cert_file_path: "./user-certs"   # Used for both CSR source and cert output
-
     users:
       - username: devuser1
       - username: devuser2
