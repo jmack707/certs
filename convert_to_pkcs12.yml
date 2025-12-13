@@ -4,10 +4,9 @@
   gather_facts: no
   vars:
     usernames:
+      - devuser1
       - devuser2
-      - devuser3
-      - devuser4
-    cert_dir: /tmp/certs
+    cert_dir: user-certs
     # Leave empty ("") or comment out to make password optional
     pkcs12_password: "bigip123"
   tasks:
