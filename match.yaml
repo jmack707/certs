@@ -5,7 +5,7 @@
 
   vars:
     cert_name: devuser1
-    directory: /tmp/certs
+    directory: user-certs
     cert_file: "{{ directory }}/{{ cert_name }}.crt"
     key_file: "{{ directory }}/{{ cert_name }}.key"
 
